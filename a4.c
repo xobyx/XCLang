@@ -632,8 +632,8 @@ void execute() {
         printf("\n");
     }
 }
-char _input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
-char input[] = "print pow(2,2);";
+char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
+//char input[] = "print pow(2,2);";
 int main() {
     // Initialize all counters
     token_count = 0;
