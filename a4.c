@@ -26,14 +26,7 @@ typedef struct {
     char str[64];
     int value;
 } Token;
-/*
-typedef struct {
-    char name[32];
-    int address;
-    int param_count;
-    int local_count;
-} Function;
-*/
+
 typedef int (*NativeFunction)(int* args, int arg_count);  // Function pointer type for native functions
 
 typedef struct {
@@ -134,6 +127,8 @@ void tokenize(const char* input) {
             
             if (strcmp(t->str, "function") == 0) t->type = TOKEN_FUNCTION;
             else if (strcmp(t->str, "if") == 0) t->type = TOKEN_IF;
+            else if (strcmp(tokens[token_count].str, "else") == 0) tokens[token_count].type = TOKEN_ELSE;
+            else if (strcmp(tokens[token_count].str, "while") == 0) tokens[token_count].type = TOKEN_WHILE;
             else if (strcmp(t->str, "return") == 0) t->type = TOKEN_RETURN;
             else if (strcmp(t->str, "print") == 0) t->type = TOKEN_PRINT;
             else t->type = TOKEN_ID;
@@ -251,75 +246,7 @@ void parse_block();
 void parse_term();
 void parse_factor();
 
-void _parse_factor() {
-    Token t = tokens[current_token];
-    
-    if (t.type == TOKEN_INT) {
-        emit(OP_PUSH, t.value);
-        current_token++;
-    }
-    else if (t.type == TOKEN_ID) {
-        current_token++; // consume ID
-        
-        if (tokens[current_token].type == TOKEN_LPAREN) {
-            // Function call
-            char func_name[32];
-            strcpy(func_name, t.str);
-            current_token++; // skip (
-            
-            // Parse arguments
-            int arg_count = 0;
-            if (tokens[current_token].type != TOKEN_RPAREN) {
-                parse_expression();
-                arg_count++;
-                
-                while (tokens[current_token].type == TOKEN_COMMA) {
-                    current_token++; // skip comma
-                    parse_expression();
-                    arg_count++;
-                }
-            }
-            
-            if (tokens[current_token].type != TOKEN_RPAREN) {
-                printf("Expected )\n");
-                exit(1);
-            }
-            current_token++; // skip )
-            
-            int func_idx = find_function(func_name);
-            if (func_idx >= 0) {
-                Function* f = &functions[func_idx];
-                if (arg_count != f->param_count) {
-                    printf("Function %s expects %d arguments but got %d\n", 
-                           func_name, f->param_count, arg_count);
-                    exit(1);
-                }
-                emit(OP_CALL, func_idx);
-            } else {
-                printf("Unknown function: %s\n", func_name);
-                exit(1);
-            }
-        } else {
-            // Variable
-            emit(OP_LOAD, find_var(t.str));
-        }
-    }
-    else if (t.type == TOKEN_LPAREN) {
-        current_token++; // skip (
-        parse_expression();
-        
-        if (tokens[current_token].type != TOKEN_RPAREN) {
-            printf("Expected )\n");
-            exit(1);
-        }
-        current_token++; // skip )
-    }
-    else {
-        printf("Unexpected token in factor\n");
-        print_token(&t);
-        exit(1);
-    }
-}
+
 
 void parse_term() {
     parse_factor();
@@ -360,7 +287,7 @@ void parse_expression() {
     }
 }
 
-void parse_if_statement() {
+void _parse_if_statement() {
     current_token++; // skip if
     current_token++; // skip (
     
@@ -377,6 +304,45 @@ void parse_if_statement() {
     bytecode[jump_addr].arg = bc_count;
 }
 
+void parse_if_statement() {
+    current_token++; // Skip 'if'
+    current_token++; // Skip '('
+    parse_expression();
+    current_token++; // Skip ')'
+    
+    int jmpf_addr = bc_count;
+    emit(OP_JMPF, 0);
+    
+    parse_block();
+    
+    if (tokens[current_token].type == TOKEN_ELSE) {
+        current_token++; // Skip 'else'
+        int jmp_addr = bc_count;
+        emit(OP_JMP, 0);
+        bytecode[jmpf_addr].arg = bc_count;
+        parse_block();
+        bytecode[jmp_addr].arg = bc_count;
+    } else {
+        bytecode[jmpf_addr].arg = bc_count;
+    }
+}
+
+void parse_while_statement() {
+    current_token++; // Skip 'while'
+    current_token++; // Skip '('
+    
+    int loop_start = bc_count;
+    parse_expression();
+    current_token++; // Skip ')'
+    
+    int jmpf_addr = bc_count;
+    emit(OP_JMPF, 0);
+    
+    parse_block();
+    
+    emit(OP_JMP, loop_start);
+    bytecode[jmpf_addr].arg = bc_count;
+}
 void parse_statement() {
     switch (tokens[current_token].type) {
         case TOKEN_IF:
@@ -407,39 +373,6 @@ void parse_block() {
     current_token++; // skip }
 }
 
-void _register_function() {
-    current_token++; // skip function keyword
-    Function* f = &functions[function_count];
-    strcpy(f->name, tokens[current_token].str);
-    f->address = bc_count;
-    f->param_count = 0; // Will be updated during actual parsing
-    f->is_native = 0;   // Not a native function
-    function_count++;
-    
-    // Count parameters for better initialization
-    current_token++; // move to function name
-    current_token++; // skip (
-    
-    if (tokens[current_token].type != TOKEN_RPAREN) {
-        f->param_count = 1; // First parameter
-        
-        while (tokens[current_token].type != TOKEN_RPAREN) {
-            if (tokens[current_token].type == TOKEN_COMMA) {
-                f->param_count++;
-            }
-            current_token++;
-        }
-    }
-    
-    // Skip the rest of function declaration and body
-    int brace_count = 0;
-    while (brace_count > 0 || tokens[current_token].type != TOKEN_RBRACE) {
-        if (tokens[current_token].type == TOKEN_LBRACE) brace_count++;
-        if (tokens[current_token].type == TOKEN_RBRACE) brace_count--;
-        current_token++;
-    }
-    current_token++; // skip final }
-}
 
 void register_function() {
     current_token++; // skip function keyword
@@ -809,143 +742,9 @@ void execute() {
         printf("\n");
     }
 }
-void _execute() {
-    int pc = main_code_start;
-    int bp = 0;
-    
-    printf("Starting execution from PC=%d\n", pc);
-    
-    while (pc < bc_count) {
-        Bytecode* bc = &bytecode[pc];
-        printf("Executing PC=%d SP=%d BP=%d FP=%d | ", pc, sp, bp, fp);
-        
-        switch (bc->op) {
-            case OP_PUSH:
-                printf("PUSH %d\n", bc->arg);
-                stack_push(bc->arg);
-                break;
-                
-            case OP_LOAD: {
-                int addr = bp + bc->arg;
-                printf("LOAD from %d (bp=%d + %d)\n", addr, bp, bc->arg);
-                if (addr < 0 || addr >= sp) {
-                    printf("Error: Invalid load address %d (sp=%d)\n", addr, sp);
-                    exit(1);
-                }
-                stack_push(stack[addr]);
-                break;
-            }
-                /*
-            case OP_CALL: {
-                Function* f = &functions[bc->arg];
-                printf("CALL %s\n", f->name);
-                
-                call_stack[fp].bp = bp;
-                call_stack[fp].ret_addr = pc + 1;
-                fp++;
-                
-                bp = sp - f->param_count;
-                pc = f->address - 1;
-                break;
-            }
-            */
-            case OP_CALL: {
-                Function* f = &functions[bc->arg];
-                
-                if (f->is_native) {
-                    // Handle native function call
-                    int args[MAX_STACK_SIZE];
-                    for (int i = f->param_count - 1; i >= 0; i--) {
-                        args[i] = stack_pop();
-                    }
-                    
-                    int result = f->native_func(args, f->param_count);
-                    stack_push(result);
-                    
-                } else {
-                    // Original bytecode function handling
-                    call_stack[fp].bp = bp;
-                    call_stack[fp].ret_addr = pc + 1;
-                    fp++;
-                    
-                    bp = sp - f->param_count;
-                    pc = f->address - 1;
-                }
-                break;
-            }
-                
-            case OP_RET: {
-                int return_value = stack_pop();
-                printf("RET %d\n", return_value);
-                
-                if (fp > 0) {
-                    fp--;
-                    sp = bp;
-                    bp = call_stack[fp].bp;
-                    pc = call_stack[fp].ret_addr - 1;
-                    stack_push(return_value);
-                } else {
-                    stack_push(return_value);
-                    return;
-                }
-                break;
-            }
-                
-            case OP_ADD: {
-                int b = stack_pop();
-                int a = stack_pop();
-                printf("ADD %d + %d\n", a, b);
-                stack_push(a + b);
-                break;
-            }
-                
-            case OP_SUB: {
-                int b = stack_pop();
-                int a = stack_pop();
-                printf("SUB %d - %d\n", a, b);
-                stack_push(a - b);
-                break;
-            }
-                
-            case OP_LT: {
-                int b = stack_pop();
-                int a = stack_pop();
-                printf("LT %d < %d\n", a, b);
-                stack_push(a < b ? 1 : 0);
-                break;
-            }
-                
-            case OP_JMPF: {
-                int condition = stack_pop();
-                printf("JMPF %d -> %d\n", condition, bc->arg);
-                if (!condition) {
-                    pc = bc->arg - 1;
-                }
-                break;
-            }
-                
-            case OP_PRINT: {
-                int value = stack_pop();
-                printf("Output: %d\n", value);
-                break;
-            }
-                
-            case OP_ENTER:
-                printf("ENTER\n");
-                break;
-        }
-        
-        pc++;
-        
-        printf("Stack:");
-        for (int i = 0; i < sp; i++) {
-            printf(" %d", stack[i]);
-        }
-        printf("\n");
-    }
-}
-char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
-//char input[] = "print pow(2,2);";
+
+//char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
+char input[] = "if (pow(2,2)<0){print 600}else {print 0;}";
 int main() {
     // Initialize all counters
     token_count = 0;
@@ -974,7 +773,7 @@ int main() {
     print_bytecode(bc_count);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    main_code_start = 18;
+    main_code_start = 0;
     execute();
     
     return 0;
