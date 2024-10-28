@@ -79,8 +79,8 @@ int native_sqrt(int* args, int arg_count) {
         printf("sqrt expects 1 argument\n");
         return 0;
     }
-    //return 60;
-    return (int)sqrt(args[0]);
+    return 60;
+    //return (int)sqrt(args[0]);
 }
 
 int native_pow(int* args, int arg_count) {
@@ -88,8 +88,8 @@ int native_pow(int* args, int arg_count) {
         printf("pow expects 2 arguments\n");
         return 0;
     }
-    //return 60;
-    return (int)pow(args[0], args[1]);
+    return 60;
+    //return (int)pow(args[0], args[1]);
 }
 void register_native_function(const char* name, NativeFunction func, int param_count) {
     Function* f = &functions[function_count];
@@ -268,12 +268,15 @@ void parse_factor() {
             current_token++; // skip (
             
             // Parse arguments
+            int arg_count = 0;
             if (tokens[current_token].type != TOKEN_RPAREN) {
                 parse_expression();
+                arg_count++;
                 
                 while (tokens[current_token].type == TOKEN_COMMA) {
                     current_token++; // skip comma
                     parse_expression();
+                    arg_count++;
                 }
             }
             
@@ -285,6 +288,12 @@ void parse_factor() {
             
             int func_idx = find_function(func_name);
             if (func_idx >= 0) {
+                Function* f = &functions[func_idx];
+                if (arg_count != f->param_count) {
+                    printf("Function %s expects %d arguments but got %d\n", 
+                           func_name, f->param_count, arg_count);
+                    exit(1);
+                }
                 emit(OP_CALL, func_idx);
             } else {
                 printf("Unknown function: %s\n", func_name);
@@ -401,25 +410,37 @@ void parse_block() {
 void register_function() {
     current_token++; // skip function keyword
     Function* f = &functions[function_count];
-    strcpy(f->name, tokens[current_token].str); // store function name
+    strcpy(f->name, tokens[current_token].str);
     f->address = bc_count;
-    f->param_count = 1; // for fib(n)
+    f->param_count = 0; // Will be updated during actual parsing
+    f->is_native = 0;   // Not a native function
     function_count++;
     
-    // Skip the rest of function declaration
-    while (tokens[current_token].type != TOKEN_LBRACE) {
-        current_token++;
+    // Count parameters for better initialization
+    current_token++; // move to function name
+    current_token++; // skip (
+    
+    if (tokens[current_token].type != TOKEN_RPAREN) {
+        f->param_count = 1; // First parameter
+        
+        while (tokens[current_token].type != TOKEN_RPAREN) {
+            if (tokens[current_token].type == TOKEN_COMMA) {
+                f->param_count++;
+            }
+            current_token++;
+        }
     }
     
-    // Skip the function body
-    int brace_count = 1;
-    current_token++; // skip {
-    while (brace_count > 0) {
+    // Skip the rest of function declaration and body
+    int brace_count = 0;
+    while (brace_count > 0 || tokens[current_token].type != TOKEN_RBRACE) {
         if (tokens[current_token].type == TOKEN_LBRACE) brace_count++;
         if (tokens[current_token].type == TOKEN_RBRACE) brace_count--;
         current_token++;
     }
+    current_token++; // skip final }
 }
+
 void parse_function() {
     current_token++; // skip function
     char name[32];
@@ -436,14 +457,24 @@ void parse_function() {
     f->address = bc_count; // Update the actual address
     
     current_token++; // skip (
-    // Handle parameter
+    
+    // Handle parameters
+    f->param_count = 0;
     if (tokens[current_token].type != TOKEN_RPAREN) {
+        // First parameter
         find_var(tokens[current_token].str);
         current_token++;
-        f->param_count = 1;
-    } else {
-        f->param_count = 0;
+        f->param_count++;
+        
+        // Additional parameters
+        while (tokens[current_token].type == TOKEN_COMMA) {
+            current_token++; // skip comma
+            find_var(tokens[current_token].str);
+            current_token++;
+            f->param_count++;
+        }
     }
+    
     current_token++; // skip )
     
     emit(OP_ENTER, f->param_count);
@@ -662,7 +693,7 @@ int main() {
     print_bytecode(bc_count);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    //main_code_start = 17;
+    main_code_start = 17;
     execute();
     
     return 0;
