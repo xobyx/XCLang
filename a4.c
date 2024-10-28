@@ -251,7 +251,7 @@ void parse_block();
 void parse_term();
 void parse_factor();
 
-void parse_factor() {
+void _parse_factor() {
     Token t = tokens[current_token];
     
     if (t.type == TOKEN_INT) {
@@ -407,7 +407,7 @@ void parse_block() {
     current_token++; // skip }
 }
 
-void register_function() {
+void _register_function() {
     current_token++; // skip function keyword
     Function* f = &functions[function_count];
     strcpy(f->name, tokens[current_token].str);
@@ -441,12 +441,55 @@ void register_function() {
     current_token++; // skip final }
 }
 
-void parse_function() {
-    current_token++; // skip function
-    char name[32];
-    strcpy(name, tokens[current_token++].str);
+void register_function() {
+    current_token++; // skip function keyword
     
-    // Find the function in our registry
+    Function* f = &functions[function_count];
+    strcpy(f->name, tokens[current_token].str);
+    f->address = bc_count;
+    f->is_native = 0;
+    
+    current_token++; // move to (
+    current_token++; // skip (
+    
+    // Count parameters
+    f->param_count = 0;
+    if (tokens[current_token].type != TOKEN_RPAREN) {
+        f->param_count = 1;
+        while (tokens[current_token].type != TOKEN_RPAREN) {
+            if (tokens[current_token].type == TOKEN_COMMA) {
+                f->param_count++;
+            }
+            current_token++;
+        }
+    }
+    
+    function_count++;
+    printf("Registered function %s with %d parameters at address %d\n", 
+           f->name, f->param_count, f->address);
+           
+    // Skip to end of function body
+    int brace_count = 0;
+    while (current_token < token_count) {
+        if (tokens[current_token].type == TOKEN_LBRACE) brace_count++;
+        if (tokens[current_token].type == TOKEN_RBRACE) {
+            brace_count--;
+            if (brace_count == 0) break;
+        }
+        current_token++;
+    }
+    current_token++; // skip final }
+}
+
+void parse_function() {
+    current_token++; // skip function keyword
+    
+    // Get function name
+    char name[32];
+    strcpy(name, tokens[current_token].str);
+    current_token++;
+    
+    // Find function in registry
     int func_idx = find_function(name);
     if (func_idx == -1) {
         printf("Internal error: Function %s not found in registry\n", name);
@@ -454,36 +497,45 @@ void parse_function() {
     }
     
     Function* f = &functions[func_idx];
-    f->address = bc_count; // Update the actual address
+    f->address = bc_count;
     
     current_token++; // skip (
     
-    // Handle parameters
-    f->param_count = 0;
+    // Process parameters
+    int param_count = 0;
     if (tokens[current_token].type != TOKEN_RPAREN) {
-        // First parameter
         find_var(tokens[current_token].str);
+        param_count++;
         current_token++;
-        f->param_count++;
         
-        // Additional parameters
         while (tokens[current_token].type == TOKEN_COMMA) {
             current_token++; // skip comma
             find_var(tokens[current_token].str);
+            param_count++;
             current_token++;
-            f->param_count++;
         }
     }
     
-    current_token++; // skip )
+    if (param_count != f->param_count) {
+        printf("Error: Function %s declared with %d parameters but defined with %d\n",
+               name, f->param_count, param_count);
+        exit(1);
+    }
     
+    current_token++; // skip )
     emit(OP_ENTER, f->param_count);
+    
+    // Parse function body
     parse_block();
+    
+    // Make sure we have a return statement at the end
+    emit(OP_RET, 0);
 }
+
 void parse() {
     // First pass: register all functions
     int original_token = current_token;
-    while (tokens[current_token].type != TOKEN_EOF) {
+    while (current_token < token_count) {
         if (tokens[current_token].type == TOKEN_FUNCTION) {
             register_function();
         } else {
@@ -491,28 +543,86 @@ void parse() {
         }
     }
     
-    // Debug: Print registered functions
-    printf("\nRegistered functions:\n");
-    for (int i = 0; i < function_count; i++) {
-        printf("Function %s at address %d with %d params\n", 
-               functions[i].name, 
-               functions[i].address, 
-               functions[i].param_count);
-    }
-    
     // Reset for second pass
     current_token = original_token;
+    var_count = 0;  // Reset variable count for second pass
     
-    // Second pass: parse actual code
-    while (tokens[current_token].type != TOKEN_EOF) {
+    // Second pass: parse function bodies and main code
+    while (current_token < token_count) {
         if (tokens[current_token].type == TOKEN_FUNCTION) {
             parse_function();
         } else {
+            // This is main code - remember where it starts
+            main_code_start = bc_count;
             parse_statement();
         }
     }
 }
 
+void parse_factor() {
+    Token t = tokens[current_token];
+    
+    if (t.type == TOKEN_INT) {
+        emit(OP_PUSH, t.value);
+        current_token++;
+    }
+    else if (t.type == TOKEN_ID) {
+        char name[32];
+        strcpy(name, t.str);
+        current_token++; // consume ID
+        
+        if (tokens[current_token].type == TOKEN_LPAREN) {
+            // Function call
+            int func_idx = find_function(name);
+            if (func_idx == -1) {
+                printf("Unknown function: %s\n", name);
+                exit(1);
+            }
+            
+            Function* f = &functions[func_idx];
+            current_token++; // skip (
+            
+            // Parse arguments
+            int arg_count = 0;
+            if (tokens[current_token].type != TOKEN_RPAREN) {
+                parse_expression();
+                arg_count++;
+                
+                while (tokens[current_token].type == TOKEN_COMMA) {
+                    current_token++; // skip comma
+                    parse_expression();
+                    arg_count++;
+                }
+            }
+            
+            if (arg_count != f->param_count) {
+                printf("Error: Function %s expects %d arguments but got %d\n",
+                       name, f->param_count, arg_count);
+                exit(1);
+            }
+            
+            current_token++; // skip )
+            emit(OP_CALL, func_idx);
+        } else {
+            // Variable reference
+            emit(OP_LOAD, find_var(name));
+        }
+    }
+    else if (t.type == TOKEN_LPAREN) {
+        current_token++; // skip (
+        parse_expression();
+        if (tokens[current_token].type != TOKEN_RPAREN) {
+            printf("Expected )\n");
+            exit(1);
+        }
+        current_token++; // skip )
+    }
+    else {
+        printf("Unexpected token in factor: ");
+        print_token(&t);
+        exit(1);
+    }
+}
 
 
 // And modify find_function to print debug info:
@@ -529,6 +639,177 @@ int find_function(const char* name) {
     return -1;
 }
 void execute() {
+    int pc = main_code_start;
+    int bp = 0;
+    
+    printf("Starting execution from PC=%d\n", pc);
+    
+    while (pc < bc_count) {
+        // Add bounds checking
+        if (pc < 0 || sp >= MAX_STACK_SIZE || fp >= MAX_STACK_SIZE) {
+            printf("Runtime error: Stack overflow or invalid PC\n");
+            printf("PC: %d, SP: %d, FP: %d\n", pc, sp, fp);
+            return;
+        }
+
+        Bytecode* bc = &bytecode[pc];
+        printf("Executing PC=%d SP=%d BP=%d FP=%d | ", pc, sp, bp, fp);
+        
+        switch (bc->op) {
+            case OP_PUSH:
+                printf("PUSH %d\n", bc->arg);
+                stack_push(bc->arg);
+                break;
+                
+            case OP_LOAD: {
+                int addr = bp + bc->arg;
+                printf("LOAD from %d (bp=%d + %d)\n", addr, bp, bc->arg);
+                if (addr < 0 || addr >= sp) {
+                    printf("Error: Invalid load address %d (sp=%d)\n", addr, sp);
+                    return;
+                }
+                stack_push(stack[addr]);
+                break;
+            }
+                
+            case OP_CALL: {
+                Function* f = &functions[bc->arg];
+                printf("CALL %s\n", f->name);
+                
+                if (f->is_native) {
+                    // Handle native function call
+                    int args[MAX_STACK_SIZE];
+                    for (int i = f->param_count - 1; i >= 0; i--) {
+                        args[i] = stack_pop();
+                    }
+                    
+                    int result = f->native_func(args, f->param_count);
+                    stack_push(result);
+                    
+                } else {
+                    // Check stack space before call
+                    if (fp >= MAX_STACK_SIZE - 1) {
+                        printf("Error: Call stack overflow\n");
+                        return;
+                    }
+                    
+                    // Save current context
+                    call_stack[fp].bp = bp;
+                    call_stack[fp].ret_addr = pc + 1;
+                    call_stack[fp].prev_bp = bp;
+                    fp++;
+                    
+                    // Set up new frame
+                    bp = sp - f->param_count;
+                    pc = f->address - 1;
+                }
+                break;
+            }
+                
+            case OP_RET: {
+                if (sp <= 0) {
+                    printf("Error: Stack underflow on return\n");
+                    return;
+                }
+                
+                int return_value = stack_pop();
+                printf("RET %d\n", return_value);
+                
+                if (fp > 0) {
+                    // Restore previous frame
+                    fp--;
+                    sp = bp;
+                    bp = call_stack[fp].bp;
+                    pc = call_stack[fp].ret_addr - 1;
+                    
+                    // Push return value to caller's stack
+                    stack_push(return_value);
+                } else {
+                    // Main function return
+                    stack_push(return_value);
+                    return;
+                }
+                break;
+            }
+                
+            case OP_ADD: {
+                if (sp < 2) {
+                    printf("Error: Stack underflow on add\n");
+                    return;
+                }
+                int b = stack_pop();
+                int a = stack_pop();
+                printf("ADD %d + %d\n", a, b);
+                stack_push(a + b);
+                break;
+            }
+                
+            case OP_SUB: {
+                if (sp < 2) {
+                    printf("Error: Stack underflow on subtract\n");
+                    return;
+                }
+                int b = stack_pop();
+                int a = stack_pop();
+                printf("SUB %d - %d\n", a, b);
+                stack_push(a - b);
+                break;
+            }
+                
+            case OP_LT: {
+                if (sp < 2) {
+                    printf("Error: Stack underflow on less than\n");
+                    return;
+                }
+                int b = stack_pop();
+                int a = stack_pop();
+                printf("LT %d < %d\n", a, b);
+                stack_push(a < b ? 1 : 0);
+                break;
+            }
+                
+            case OP_JMPF: {
+                if (sp < 1) {
+                    printf("Error: Stack underflow on conditional jump\n");
+                    return;
+                }
+                int condition = stack_pop();
+                printf("JMPF %d -> %d\n", condition, bc->arg);
+                if (!condition) {
+                    pc = bc->arg - 1;
+                }
+                break;
+            }
+                
+            case OP_PRINT: {
+                if (sp < 1) {
+                    printf("Error: Stack underflow on print\n");
+                    return;
+                }
+                int value = stack_pop();
+                printf("Output: %d\n", value);
+                break;
+            }
+                
+            case OP_ENTER:
+                printf("ENTER frame with %d parameters\n", bc->arg);
+                break;
+                
+            default:
+                printf("Error: Unknown opcode %d\n", bc->op);
+                return;
+        }
+        
+        pc++;
+        
+        printf("Stack:");
+        for (int i = 0; i < sp; i++) {
+            printf(" %d", stack[i]);
+        }
+        printf("\n");
+    }
+}
+void _execute() {
     int pc = main_code_start;
     int bp = 0;
     
@@ -693,7 +974,7 @@ int main() {
     print_bytecode(bc_count);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    main_code_start = 17;
+    main_code_start = 18;
     execute();
     
     return 0;
