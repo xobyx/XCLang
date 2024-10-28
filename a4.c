@@ -127,8 +127,8 @@ void tokenize(const char* input) {
             
             if (strcmp(t->str, "function") == 0) t->type = TOKEN_FUNCTION;
             else if (strcmp(t->str, "if") == 0) t->type = TOKEN_IF;
-            else if (strcmp(tokens[token_count].str, "else") == 0) tokens[token_count].type = TOKEN_ELSE;
-            else if (strcmp(tokens[token_count].str, "while") == 0) tokens[token_count].type = TOKEN_WHILE;
+            else if (strcmp(t->str, "else") == 0) t->type = TOKEN_ELSE;
+            else if (strcmp(t->str, "while") == 0) t->type = TOKEN_WHILE;
             else if (strcmp(t->str, "return") == 0) t->type = TOKEN_RETURN;
             else if (strcmp(t->str, "print") == 0) t->type = TOKEN_PRINT;
             else t->type = TOKEN_ID;
@@ -163,6 +163,8 @@ void print_token(Token* t) {
         case TOKEN_ID: printf("ID(%s)", t->str); break;
         case TOKEN_FUNCTION: printf("FUNCTION"); break;
         case TOKEN_IF: printf("IF"); break;
+        case TOKEN_ELSE: printf("ELSE"); break;
+        case TOKEN_WHILE: printf("WHILE"); break;
         case TOKEN_RETURN: printf("RETURN"); break;
         case TOKEN_PRINT: printf("PRINT"); break;
         case TOKEN_LPAREN: printf("("); break;
@@ -310,8 +312,10 @@ void parse_if_statement() {
     parse_expression();
     current_token++; // Skip ')'
     
-    int jmpf_addr = bc_count;
-    emit(OP_JMPF, 0);
+    //int jmpf_addr = bc_count;
+    //emit(OP_JMPF, 0);
+    emit(OP_JMPF, bc_count + 2); // We'll patch this later
+    int jmpf_addr = bc_count - 1;
     
     parse_block();
     
@@ -348,7 +352,10 @@ void parse_statement() {
         case TOKEN_IF:
             parse_if_statement();
             break;
-            
+        case TOKEN_WHILE: 
+        	parse_while_statement();
+        	break;
+    	
         case TOKEN_RETURN:
             parse_return_statement();
             break;
@@ -743,8 +750,8 @@ void execute() {
     }
 }
 
-//char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
-char input[] = "if (pow(2,2)<0){print 600}else {print 0;}";
+char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
+//char input[] = "if (pow(2,2)<0){print 600}else {print 0;}";
 int main() {
     // Initialize all counters
     token_count = 0;
@@ -773,7 +780,7 @@ int main() {
     print_bytecode(bc_count);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    main_code_start = 0;
+    main_code_start = 18;
     execute();
     
     return 0;
