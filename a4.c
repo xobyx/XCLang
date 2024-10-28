@@ -10,14 +10,14 @@
 #define MAX_BYTECODE 1000
 
 typedef enum {
-    OP_PUSH, OP_LOAD, OP_STORE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_LT,
+    OP_PUSH, OP_LOAD, OP_STORE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_LT,OP_GT,OP_LTE,OP_GTE,
     OP_PRINT, OP_JMP, OP_JMPF, OP_CALL, OP_RET, OP_ENTER, OP_LEAVE
 } OpCode;
 
 typedef enum {
     TOKEN_INT, TOKEN_ID, TOKEN_FUNCTION, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_RETURN,
     TOKEN_PRINT, TOKEN_LPAREN, TOKEN_RPAREN, TOKEN_LBRACE, TOKEN_RBRACE,
-    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MUL, TOKEN_DIV, TOKEN_LT, TOKEN_COMMA, TOKEN_ASSIGN, TOKEN_EOF,TOKEN_NATIVE_FUNC
+    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MUL, TOKEN_DIV, TOKEN_LT,TOKEN_GT, TOKEN_COMMA, TOKEN_ASSIGN, TOKEN_EOF,TOKEN_NATIVE_FUNC,TOKEN_EQL
 } TokenType;
 
 typedef struct {
@@ -145,6 +145,7 @@ void tokenize(const char* input) {
             case '*': t->type = TOKEN_MUL; break;
             case '/': t->type = TOKEN_DIV; break;
             case '<': t->type = TOKEN_LT; break;
+            case '>': t->type = TOKEN_GT; break;
             case '=': t->type = TOKEN_ASSIGN; break;
             case ',': t->type = TOKEN_COMMA; break;
             default: 
@@ -176,6 +177,8 @@ void print_token(Token* t) {
         case TOKEN_MUL: printf("*"); break;
         case TOKEN_DIV: printf("/"); break;
         case TOKEN_LT: printf("<"); break;
+        case TOKEN_GT: printf(">"); break;
+        case TOKEN_EQL: printf("=="); break;
         case TOKEN_ASSIGN: printf("="); break;
         case TOKEN_COMMA: printf(","); break;
         case TOKEN_EOF: printf("EOF"); break;
@@ -197,6 +200,9 @@ void print_bytecode(int count) {
             case OP_MUL: printf("MUL"); break;
             case OP_DIV: printf("DIV"); break;
             case OP_LT: printf("LT"); break;
+            case OP_GT: printf("GT"); break;
+            case OP_LTE: printf("LTE"); break;
+            case OP_GTE: printf("GTE"); break;
             case OP_PRINT: printf("PRINT"); break;
             case OP_JMP: printf("JMP %d", bytecode[i].arg); break;
             case OP_JMPF: printf("JMPF %d", bytecode[i].arg); break;
@@ -274,16 +280,23 @@ void parse_expression() {
     
     while (current_token < token_count) {
         TokenType op = tokens[current_token].type;
-        if (op != TOKEN_PLUS && op != TOKEN_MINUS && op != TOKEN_LT)
+        if (op != TOKEN_PLUS && op != TOKEN_MINUS && op != TOKEN_LT && op != TOKEN_GT )
             break;
             
         current_token++; // skip operator
+        if (tokens[current_token].type!=TOKEN_ASSIGN) 
         parse_term();
         
         switch (op) {
             case TOKEN_PLUS: emit(OP_ADD, 0); break;
             case TOKEN_MINUS: emit(OP_SUB, 0); break;
-            case TOKEN_LT: emit(OP_LT, 0); break;
+            case TOKEN_LT: 
+            	emit(OP_LT, 0);
+				break;
+            case TOKEN_GT: 
+				
+				else {emit(OP_GT, 0);}
+				break;
             default: break;
         }
     }
@@ -543,6 +556,13 @@ void parse_factor() {
             
             current_token++; // skip )
             emit(OP_CALL, func_idx);
+            
+        }else if(tokens[current_token].type == TOKEN_ASSIGN) {
+        	current_token++; // skip =
+            parse_expression();
+            int var = find_var(name);
+            emit(OP_STORE, var);
+            
         } else {
             // Variable reference
             emit(OP_LOAD, find_var(name));
@@ -611,6 +631,25 @@ void execute() {
                 stack_push(stack[addr]);
                 break;
             }
+            case OP_STORE: {
+
+                int value = stack_pop();
+
+                int addr = bp + bc->arg;
+
+                printf("Storing value %d at address %d\n", value, addr);
+
+                while (addr >= sp) {
+
+                    stack_push(0);
+
+                }
+
+                stack[addr] = value;
+
+                break;
+
+            }            
                 
             case OP_CALL: {
                 Function* f = &functions[bc->arg];
@@ -707,6 +746,39 @@ void execute() {
                 stack_push(a < b ? 1 : 0);
                 break;
             }
+            case OP_GT: {
+                if (sp < 2) {
+                    printf("Error: Stack underflow on less than\n");
+                    return;
+                }
+                int b = stack_pop();
+                int a = stack_pop();
+                printf("GT %d < %d\n", a, b);
+                stack_push(a > b ? 1 : 0);
+                break;
+            }
+            case OP_LTE: {
+                if (sp < 2) {
+                    printf("Error: Stack underflow on less than\n");
+                    return;
+                }
+                int b = stack_pop();
+                int a = stack_pop();
+                printf("LTE %d < %d\n", a, b);
+                stack_push(a <= b ? 1 : 0);
+                break;
+            }
+            case OP_GTE: {
+                if (sp < 2) {
+                    printf("Error: Stack underflow on less than\n");
+                    return;
+                }
+                int b = stack_pop();
+                int a = stack_pop();
+                printf("GTE %d < %d\n", a, b);
+                stack_push(a >= b ? 1 : 0);
+                break;
+            }
                 
             case OP_JMPF: {
                 if (sp < 1) {
@@ -720,6 +792,18 @@ void execute() {
                 }
                 break;
             }
+            case OP_JMP: {
+                if (sp < 1) {
+                    printf("Error: Stack underflow on conditional jump\n");
+                    return;
+                }
+                //int condition = stack_pop();
+                printf("JMP -> %d\n", bc->arg);
+                
+                pc = bc->arg - 1;
+                
+                break;
+            }            
                 
             case OP_PRINT: {
                 if (sp < 1) {
@@ -727,7 +811,7 @@ void execute() {
                     return;
                 }
                 int value = stack_pop();
-                printf("Output: %d\n", value);
+                printf(">>>> Output: %d\n", value);
                 break;
             }
                 
@@ -750,8 +834,9 @@ void execute() {
     }
 }
 
-char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
-//char input[] = "if (pow(2,2)<0){print 600}else {print 0;}";
+//char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
+char _input[] = "u=pow(2,2);if (pow(2,2)<u){print u}else {print u+2;}";
+char input[] = "u=0;while(u<=10){print u;u=u+1;}";
 int main() {
     // Initialize all counters
     token_count = 0;
@@ -780,7 +865,7 @@ int main() {
     print_bytecode(bc_count);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    main_code_start = 18;
+    main_code_start = 0;
     execute();
     
     return 0;
