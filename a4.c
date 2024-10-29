@@ -113,6 +113,7 @@ void register_native_function(const char* name, NativeFunction func, int param_c
 }
 // Track where main code starts
 int main_code_start = 0;
+int main_code_start_t = 0;
 void parse_function() ;
 int find_function(const char* name);
 void emit(OpCode op, int arg) {
@@ -377,9 +378,11 @@ void parse_declaration() {
 	    
 	    // Parse function body
 	    parse_block();
+	    main_code_start_t=bc_count;
 	    
 	    // Make sure we have a return statement at the end
 	    //emit(OP_RET, 0);
+	    
 
 	}
 }
@@ -939,6 +942,7 @@ int main() {
     register_native_function("sqrt", native_sqrt, 1);
     register_native_function("pow", native_pow, 2);
 
+	printf("main_code_start_t : %d \n",main_code_start_t);
     printf("Tokenizing program...\n");
     tokenize(input);//program);
     
