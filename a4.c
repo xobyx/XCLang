@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #define MAX_TOKENS 1000
 #define MAX_STACK_SIZE 1000
 #define MAX_VARS 100
@@ -15,9 +16,12 @@ typedef enum {
 } OpCode;
 
 typedef enum {
-    TOKEN_INT, TOKEN_ID, TOKEN_FUNCTION, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_RETURN,
+    TOKEN_INT, TOKEN_ID/*,TOKEN_FUNCTION*/, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_RETURN,
     TOKEN_PRINT, TOKEN_LPAREN, TOKEN_RPAREN, TOKEN_LBRACE, TOKEN_RBRACE,
-    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MUL, TOKEN_DIV, TOKEN_LT,TOKEN_GT,TOKEN_LTE,TOKEN_GTE, TOKEN_COMMA, TOKEN_ASSIGN, TOKEN_EOF,TOKEN_NATIVE_FUNC,TOKEN_EQL
+    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MUL, TOKEN_DIV, TOKEN_LT,TOKEN_GT,TOKEN_LTE,TOKEN_GTE, TOKEN_COMMA, TOKEN_ASSIGN, TOKEN_EOF,TOKEN_NATIVE_FUNC,TOKEN_EQL,
+    TOKEN_INT_TYPE,    // "int" keyword
+    TOKEN_FLOAT_TYPE,  // "float" keyword
+    TOKEN_STRING_TYPE, // "string" keyword
 } TokenType;
 
 typedef struct {
@@ -28,9 +32,14 @@ typedef struct {
 } Token;
 
 typedef int (*NativeFunction)(int* args, int arg_count);  // Function pointer type for native functions
-
+typedef enum {
+    TYPE_INT,
+    TYPE_FLOAT,
+    TYPE_STRING
+} VarType;
 typedef struct {
     char name[32];
+    VarType type;
     int address;
     int param_count;
     int local_count;
@@ -66,6 +75,15 @@ typedef struct {
 
 Frame call_stack[MAX_STACK_SIZE];
 int fp = 0;  // Frame pointer
+
+
+typedef struct {
+    char name[32];
+    VarType type;
+    int offset;  // Stack offset
+} Variable;
+
+Variable variables[MAX_VARS];
 
 int native_sqrt(int* args, int arg_count) {
     if (arg_count != 1) {
@@ -125,12 +143,15 @@ void tokenize(const char* input) {
             }
             t->str[i] = 0;
             
-            if (strcmp(t->str, "function") == 0) t->type = TOKEN_FUNCTION;
-            else if (strcmp(t->str, "if") == 0) t->type = TOKEN_IF;
+            //if (strcmp(t->str, "function") == 0) t->type = TOKEN_FUNCTION;
+            if (strcmp(t->str, "if") == 0) t->type = TOKEN_IF;
             else if (strcmp(t->str, "else") == 0) t->type = TOKEN_ELSE;
             else if (strcmp(t->str, "while") == 0) t->type = TOKEN_WHILE;
             else if (strcmp(t->str, "return") == 0) t->type = TOKEN_RETURN;
             else if (strcmp(t->str, "print") == 0) t->type = TOKEN_PRINT;
+            else if (strcmp(t->str, "int") == 0) t->type = TOKEN_INT_TYPE;
+        	else if (strcmp(t->str, "float") == 0) t->type = TOKEN_FLOAT_TYPE;
+        	else if (strcmp(t->str, "string") == 0) t->type = TOKEN_STRING_TYPE;
             else t->type = TOKEN_ID;
             continue;
         }
@@ -162,7 +183,7 @@ void print_token(Token* t) {
     switch(t->type) {
         case TOKEN_INT: printf("INT(%d)", t->value); break;
         case TOKEN_ID: printf("ID(%s)", t->str); break;
-        case TOKEN_FUNCTION: printf("FUNCTION"); break;
+        //case TOKEN_FUNCTION: printf("FUNCTION"); break;
         case TOKEN_IF: printf("IF"); break;
         case TOKEN_ELSE: printf("ELSE"); break;
         case TOKEN_WHILE: printf("WHILE"); break;
@@ -184,6 +205,9 @@ void print_token(Token* t) {
         case TOKEN_ASSIGN: printf("="); break;
         case TOKEN_COMMA: printf(","); break;
         case TOKEN_EOF: printf("EOF"); break;
+        case TOKEN_INT_TYPE: printf("INTEGER"); break;
+    	case TOKEN_FLOAT_TYPE: printf("FLOAT"); break;
+    	case TOKEN_STRING_TYPE: printf("STRING"); break;
         default: printf("UNKNOWN"); break;
     }
     printf("\n");
@@ -234,14 +258,32 @@ int stack_pop() {
     }
     return stack[--sp];
 }
-
+/*
 int find_var(const char* name) {
     for (int i = 0; i < var_count; i++)
         if (strcmp(var_names[i], name) == 0) return i;
     strcpy(var_names[var_count], name);
     return var_count++;
 }
+*/
+Variable* find_var(const char* name) {
+    for (int i = 0; i < var_count; i++) {
+        if (strcmp(variables[i].name, name) == 0) 
+            return &variables[i];
+    }
+    return NULL;
+}
 
+Variable* add_var(const char* name, VarType type) {
+    if (var_count >= MAX_VARS) {
+        printf("Too many variables\n");
+        exit(1);
+    }
+    strcpy(variables[var_count].name, name);
+    variables[var_count].type = type;
+    variables[var_count].offset = var_count;
+    return &variables[var_count++];
+}
 void parse_expression();
 
 void parse_return_statement() {
@@ -257,7 +299,89 @@ void parse_block();
 void parse_term();
 void parse_factor();
 
+VarType token_to_type(TokenType token) {
+    switch (token) {
+        case TOKEN_INT_TYPE: return TYPE_INT;
+        case TOKEN_FLOAT_TYPE: return TYPE_FLOAT;
+        case TOKEN_STRING_TYPE: return TYPE_STRING;
+        default:
+            printf("Invalid type token\n");
+            exit(1);
+    }
+}
+void parse_declaration() {
+    // Get the type
+    VarType type = token_to_type(tokens[current_token].type);
+    current_token++; // Skip type token
+    
+    // Get variable name
+    if (tokens[current_token].type != TOKEN_ID) {
+        printf("Expected identifier after type\n");
+        exit(1);
+    }
+    char* var_name = tokens[current_token].str;
+    current_token++; // Skip identifier
+    
+    if (tokens[current_token].type != TOKEN_LPAREN) { 
+    // Add variable to symbol table
+    	Variable* var = add_var(var_name, type);
+    
+    // Handle initialization if present
+    	if (tokens[current_token].type == TOKEN_ASSIGN) {
+        	current_token++; // Skip =
+        	parse_expression();
+        	emit(OP_STORE, var->offset);
+    	} else {
+        // Initialize with default value (0)
+        	emit(OP_PUSH, 0);
+        	emit(OP_STORE, var->offset);
+    	}
+    }else{//function definition 
+		Function* f = &functions[function_count];
+	    strcpy(f->name, var_name);
+	    f->address = bc_count;
+	    f->is_native = 0;
+	    f->type=type;
+	    
+	    current_token++; // skip (
+	    
+    	f->param_count = 0;
+	    if (tokens[current_token].type != TOKEN_RPAREN) {
+	    	
+	        VarType type = token_to_type(tokens[current_token].type);
+	        current_token++; // Skip type token
+	        Variable* var = add_var(tokens[current_token].str, type);
+	        current_token++;//skip name
+			f->param_count++;
+	        
+	        
+	        while (tokens[current_token].type == TOKEN_COMMA) {
+	            current_token++; // skip comma
+	            VarType type = token_to_type(tokens[current_token].type);
+	            current_token++; // Skip type token
+	            Variable* var = add_var(tokens[current_token].str, type);
+	            current_token++;
+	            f->param_count++;
+	            
+	        }
+	    }
+	    
+	    function_count++;
+		printf("Registered function %s with %d parameters at address %d\n", 
+		           f->name, f->param_count, f->address);
+		           
+	    
+	    current_token++; // skip )
+	    emit(OP_ENTER, f->param_count);
+	    
+	    // Parse function body
+	    parse_block();
+	    
+	    // Make sure we have a return statement at the end
+	    emit(OP_RET, 0);
 
+	}
+}
 
 void parse_term() {
     parse_factor();
@@ -382,6 +506,12 @@ void parse_statement() {
             parse_expression();
             emit(OP_PRINT, 0);
             break;
+        case TOKEN_INT_TYPE:
+        case TOKEN_FLOAT_TYPE:
+        case TOKEN_STRING_TYPE:
+            
+        	parse_declaration();
+            break;
             
         default:
             parse_expression();
@@ -398,106 +528,15 @@ void parse_block() {
 }
 
 
-void register_function() {
-    current_token++; // skip function keyword
-    
-    Function* f = &functions[function_count];
-    strcpy(f->name, tokens[current_token].str);
-    f->address = bc_count;
-    f->is_native = 0;
-    
-    current_token++; // move to (
-    current_token++; // skip (
-    
-    // Count parameters
-    f->param_count = 0;
-    if (tokens[current_token].type != TOKEN_RPAREN) {
-        f->param_count = 1;
-        while (tokens[current_token].type != TOKEN_RPAREN) {
-            if (tokens[current_token].type == TOKEN_COMMA) {
-                f->param_count++;
-            }
-            current_token++;
-        }
-    }
-    
-    function_count++;
-    printf("Registered function %s with %d parameters at address %d\n", 
-           f->name, f->param_count, f->address);
-           
-    // Skip to end of function body
-    int brace_count = 0;
-    while (current_token < token_count) {
-        if (tokens[current_token].type == TOKEN_LBRACE) brace_count++;
-        if (tokens[current_token].type == TOKEN_RBRACE) {
-            brace_count--;
-            if (brace_count == 0) break;
-        }
-        current_token++;
-    }
-    current_token++; // skip final }
-}
-
-void parse_function() {
-    current_token++; // skip function keyword
-    
-    // Get function name
-    char name[32];
-    strcpy(name, tokens[current_token].str);
-    current_token++;
-    
-    // Find function in registry
-    int func_idx = find_function(name);
-    if (func_idx == -1) {
-        printf("Internal error: Function %s not found in registry\n", name);
-        exit(1);
-    }
-    
-    Function* f = &functions[func_idx];
-    f->address = bc_count;
-    
-    current_token++; // skip (
-    
-    // Process parameters
-    int param_count = 0;
-    if (tokens[current_token].type != TOKEN_RPAREN) {
-        find_var(tokens[current_token].str);
-        param_count++;
-        current_token++;
-        
-        while (tokens[current_token].type == TOKEN_COMMA) {
-            current_token++; // skip comma
-            find_var(tokens[current_token].str);
-            param_count++;
-            current_token++;
-        }
-    }
-    
-    if (param_count != f->param_count) {
-        printf("Error: Function %s declared with %d parameters but defined with %d\n",
-               name, f->param_count, param_count);
-        exit(1);
-    }
-    
-    current_token++; // skip )
-    emit(OP_ENTER, f->param_count);
-    
-    // Parse function body
-    parse_block();
-    
-    // Make sure we have a return statement at the end
-    emit(OP_RET, 0);
-}
-
 void parse() {
     // First pass: register all functions
     int original_token = current_token;
     while (current_token < token_count) {
-        if (tokens[current_token].type == TOKEN_FUNCTION) {
-            register_function();
-        } else {
+       // if (tokens[current_token].type == TOKEN_FUNCTION) {
+            //register_function();
+      //  } else {
             current_token++;
-        }
+      //  }
     }
     
     // Reset for second pass
@@ -506,13 +545,19 @@ void parse() {
     
     // Second pass: parse function bodies and main code
     while (current_token < token_count) {
-        if (tokens[current_token].type == TOKEN_FUNCTION) {
-            parse_function();
-        } else {
+       // if (tokens[current_token].type == TOKEN_FUNCTION) {
+           // parse_function();
+      //  } else {
             // This is main code - remember where it starts
             main_code_start = bc_count;
             parse_statement();
-        }
+       // }
+    }
+}
+void check_types(VarType left, VarType right, const char* operation) {
+    if (left != right) {
+        printf("Type mismatch in %s operation\n", operation);
+        exit(1);
     }
 }
 
@@ -524,15 +569,15 @@ void parse_factor() {
         current_token++;
     }
     else if (t.type == TOKEN_ID) {
-        char name[32];
-        strcpy(name, t.str);
+        
+        
         current_token++; // consume ID
         
         if (tokens[current_token].type == TOKEN_LPAREN) {
             // Function call
-            int func_idx = find_function(name);
+            int func_idx = find_function(t.str);
             if (func_idx == -1) {
-                printf("Unknown function: %s\n", name);
+                printf("Unknown function: %s\n", t.str);
                 exit(1);
             }
             
@@ -554,7 +599,7 @@ void parse_factor() {
             
             if (arg_count != f->param_count) {
                 printf("Error: Function %s expects %d arguments but got %d\n",
-                       name, f->param_count, arg_count);
+                       t.str, f->param_count, arg_count);
                 exit(1);
             }
             
@@ -562,14 +607,27 @@ void parse_factor() {
             emit(OP_CALL, func_idx);
             
         }else if(tokens[current_token].type == TOKEN_ASSIGN) {
+        	Variable* var = find_var(t.str);
+        	if (!var) {
+            	printf("Undefined variable: %s\n", t.str);
+            	exit(1);
+            
+        	}
         	current_token++; // skip =
-            parse_expression();
-            int var = find_var(name);
-            emit(OP_STORE, var);
+            //VarType expr_type =
+			parse_expression();
+            //check_types(var->type, expr_type, "assignment");
+            emit(OP_STORE, var->offset);
             
         } else {
+        	Variable* var = find_var(t.str);
+        	if (!var) {
+            	printf("Undefined variable: %s\n", t.str);
+            	exit(1);
+            
+        	}
             // Variable reference
-            emit(OP_LOAD, find_var(name));
+            emit(OP_LOAD, var->offset);
         }
     }
     else if (t.type == TOKEN_LPAREN) {
@@ -848,11 +906,15 @@ void execute() {
         printf("\n");
     }
 }
-
-//char input[] = "function fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
-char _input[] = "u=pow(2,2);if (pow(2,2)<u){print u}else {print u+2;}";
-char input[] = "u=0;while(u<=10){ if(u==10) {print 6666;}print u;u=u+1;}";
+char input[]="int test(int x,int y){return x+y+1;}print test(2,3);";
+//char input[] = "int fib(int n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
+//char input[] = "int u=pow(2,2);if (pow(2,2)<u){print u}else {print u+2;}";
+//char input[] = "int u=0;while(u<=10){ if(u==10) {print 6666;}print u;u=u+1;}";
 int main() {
+	time_t start, end;
+    double time_taken;
+    
+    
     // Initialize all counters
     token_count = 0;
     current_token = 0;
@@ -874,14 +936,21 @@ int main() {
     }
     
     printf("\nParsing program...\n");
+    start = time(NULL)*1000;
     parse();
-    
+    end = time(NULL)*1000;
+    time_taken = difftime(end, start);
+    printf("parse take: %f seconds\n", time_taken);
     printf("\nBytecode:\n");
     print_bytecode(bc_count);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    main_code_start = 0;
+    main_code_start = 8;
+    start = time(NULL);
     execute();
+    end = time(NULL);
+    time_taken = difftime(end, start);
+    printf("execute take: %f seconds\n", time_taken);
     
     return 0;
 }
