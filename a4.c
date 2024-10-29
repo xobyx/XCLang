@@ -804,7 +804,7 @@ void execute() {
                 }
                 int b = stack_pop();
                 int a = stack_pop();
-                printf("ADD %d + %d\n", a, b);
+                printf("MUL %d * %d\n", a, b);
                 stack_push(a * b);
                 break;
             }
