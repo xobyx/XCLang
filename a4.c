@@ -642,7 +642,7 @@ void parse_factor() {
     else {
         printf("Unexpected token in factor: ");
         print_token(&t);
-        exit(1);
+        //exit(1);
     }
 }
 
@@ -906,7 +906,7 @@ void execute() {
         printf("\n");
     }
 }
-char input[]="int test(int x,int y){return x+y+1;}print test(2,3);";
+char input[]="int test(int x,int y){if (x+y<5)return x+y+1; return x*y;}print test(2,3);";
 //char input[] = "int fib(int n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
 //char input[] = "int u=pow(2,2);if (pow(2,2)<u){print u}else {print u+2;}";
 //char input[] = "int u=0;while(u<=10){ if(u==10) {print 6666;}print u;u=u+1;}";
