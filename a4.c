@@ -16,7 +16,7 @@ typedef enum {
 } OpCode;
 
 typedef enum {
-    TOKEN_INT, TOKEN_ID/*,TOKEN_FUNCTION*/, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_RETURN,
+    TOKEN_VALUE, TOKEN_ID/*,TOKEN_FUNCTION*/, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_RETURN,
     TOKEN_PRINT, TOKEN_LPAREN, TOKEN_RPAREN, TOKEN_LBRACE, TOKEN_RBRACE,
     TOKEN_PLUS, TOKEN_MINUS, TOKEN_MUL, TOKEN_DIV, TOKEN_LT,TOKEN_GT,TOKEN_LTE,TOKEN_GTE, TOKEN_COMMA, TOKEN_ASSIGN, TOKEN_EOF,TOKEN_NATIVE_FUNC,TOKEN_EQL,
     TOKEN_INT_TYPE,    // "int" keyword
@@ -35,7 +35,8 @@ typedef int (*NativeFunction)(int* args, int arg_count);  // Function pointer ty
 typedef enum {
     TYPE_INT,
     TYPE_FLOAT,
-    TYPE_STRING
+    TYPE_STRING,
+    TYPE_VOID
 } VarType;
 typedef struct {
     char name[32];
@@ -131,7 +132,7 @@ void tokenize(const char* input) {
         Token* t = &tokens[token_count++];
         
         if (isdigit(*p)) {
-            t->type = TOKEN_INT;
+            t->type = TOKEN_VALUE;
             t->value = strtol(p, (char**)&p, 10);
             continue;
         }
@@ -181,7 +182,7 @@ void tokenize(const char* input) {
 void print_token(Token* t) {
     printf("Token: ");
     switch(t->type) {
-        case TOKEN_INT: printf("INT(%d)", t->value); break;
+        case TOKEN_VALUE: printf("VALUE(%d)", t->value); break;
         case TOKEN_ID: printf("ID(%s)", t->str); break;
         //case TOKEN_FUNCTION: printf("FUNCTION"); break;
         case TOKEN_IF: printf("IF"); break;
@@ -378,7 +379,7 @@ void parse_declaration() {
 	    parse_block();
 	    
 	    // Make sure we have a return statement at the end
-	    emit(OP_RET, 0);
+	    //emit(OP_RET, 0);
 
 	}
 }
@@ -564,7 +565,7 @@ void check_types(VarType left, VarType right, const char* operation) {
 void parse_factor() {
     Token t = tokens[current_token];
     
-    if (t.type == TOKEN_INT) {
+    if (t.type == TOKEN_VALUE) {
         emit(OP_PUSH, t.value);
         current_token++;
     }
@@ -895,7 +896,7 @@ void execute() {
                     return;
                 }
                 int value = stack_pop();
-                printf("\n∆>>> Output: %d\n", value);
+                printf("\n💥 Output: %d\n", value);
                 break;
             }
                 
@@ -956,7 +957,7 @@ int main() {
     print_bytecode(bc_count);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    main_code_start = 18;
+    main_code_start = 17;
     start = time(NULL);
     execute();
     end = time(NULL);
