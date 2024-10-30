@@ -68,6 +68,8 @@ typedef struct {
     OpCode op;
     int arg;
 } Bytecode;
+
+
 typedef struct {
     char data[MAX_STRING_LENGTH];
     int length;
@@ -264,6 +266,10 @@ void print_token(Token* t) {
         case TOKEN_INT_TYPE: printf("INTEGER"); break;
     	case TOKEN_FLOAT_TYPE: printf("FLOAT"); break;
     	case TOKEN_STRING_TYPE: printf("STRING"); break;
+    	case TOKEN_LBRACKET: printf("["); break;
+		case TOKEN_RBRACKET: printf("]"); break;    // [] for array access
+    	case TOKEN_STRING_LITERAL: printf("%s",t->str); break;               // For string literals
+   	 case TOKEN_ARRAY_TYPE: printf("STRING"); break;    
         default: printf("UNKNOWN"); break;
     }
     printf("\n");
@@ -293,6 +299,9 @@ void print_bytecode(int count) {
             case OP_RET: printf("RET"); break;
             case OP_ENTER: printf("ENTER %d", bytecode[i].arg); break;
             case OP_LEAVE: printf("LEAVE"); break;
+            case OP_ARRAY_LOAD: printf("ARRAY_LOAD %d", bytecode[i].arg); break;   // Load from array
+    		case OP_ARRAY_STORE: printf("ARRAY_STORE %d", bytecode[i].arg); break;   // Store to array
+            case OP_STRING_PUSH: printf("OP_STRING_PUSH"); break;    // Push string literal
             default: printf("UNKNOWN"); break;
         }
         printf("\n");
@@ -383,6 +392,7 @@ void parse_declaration() {
 	        // Array declaration
 	        current_token++; // Skip [
 	        int size = tokens[current_token].value;
+	printf("\n\n•••••var size %d\n\n",size);
 	        current_token++; // Skip size
 	        current_token++; // Skip ]
 	        // change array type base on int[y]
@@ -1035,6 +1045,41 @@ void execute() {
             case OP_ENTER:
                 printf("ENTER frame with %d parameters\n", bc->arg);
                 break;
+            case OP_ARRAY_LOAD: {
+	            int index = stack_pop();
+	            int base_addr = bp + bc->arg;
+	printf("\n\n•load••••var size %d\n\n",variables[bc->arg].size);
+	/*
+	            if (index < 0 || index >= variables[bc->arg].size) {
+	                printf("Array index out of bounds\n");
+	                exit(1);
+	            }
+	*/
+	            stack_push(stack[base_addr + index]);
+	            break;
+	        }
+        
+	        case OP_ARRAY_STORE: {
+	            int value = stack_pop();
+	            int index = stack_pop();
+	            int base_addr = bp + bc->arg;
+	printf("\n\n•••••store var size %d\n\n",variables[bc->arg].size);
+	/*
+	            if (index < 0 || index >= variables[bc->arg].size) {
+	                printf("Array index out of bounds\n");
+	                exit(1);
+	            }
+	*/
+	            stack[base_addr + index] = value;
+	            break;
+	        }
+	        
+	        case OP_STRING_PUSH: {
+	            printf("Pushing string: %s\n", string_pool[bc->arg].data);
+	            // For simplicity, we'll just push the string pool index
+	            stack_push(bc->arg);
+	            break;
+	        }
                 
             default:
                 printf("Error: Unknown opcode %d\n", bc->op);
@@ -1050,7 +1095,7 @@ void execute() {
         printf("\n");
     }
 }
-char input[]="int hello(){return 12;}int test(int x,int y){if (x+y<=5){ return x+y+hello();} return x*y;}print test(2,3);int x[5]";
+char input[]="int hello(){return 12;}int test(int x,int y){if (x+y<=5){ return x+y+hello();} return x*y;}print test(2,3);int xn[5];xn[0]=555;print xn[0]";
 //char input[] = "int fib(int n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
 //char input[] = "int u=pow(2,2);if (pow(2,2)<u){print u}else {print u+2;}";
 //char input[] = "int u=0;while(u<=10){ if(u==10) {print 6666;}print u;u=u+1;}";
@@ -1091,7 +1136,7 @@ int main() {
     printf("main_code_start_t : %d \n",main_code_start_t);
     printf("$ start at %d\n",main_code_start);
     printf("\nExecuting program...\n");
-    main_code_start = main_code_start_t;
+    main_code_start =20;// main_code_start_t;
     start = time(NULL);
     execute();
     end = time(NULL);
