@@ -178,6 +178,7 @@ void tokenize(const char* input) {
             p++;  // Skip opening quote
             int i = 0;
             while (*p && *p != '"') {
+            	
                 t->str[i++] = *p++;
             }
             t->str[i] = '\0';
@@ -374,6 +375,87 @@ VarType token_to_type(TokenType token) {
             exit(1);
     }
 }
+static void parse_array_initializer(Variable* var, int size) {
+    if (tokens[current_token].type != TOKEN_ASSIGN) {
+        for (int i = 0; i < size; i++) {
+	           /* emit(OP_PUSH, 0);
+	            emit(OP_STORE, var->offset + i);*/
+	emit(OP_PUSH, i);
+        emit(OP_PUSH, 0);
+        emit(OP_ARRAY_STORE, var->offset);
+        
+	        }// No initializer
+    }
+    current_token++; // skip =
+    
+    if (tokens[current_token].type != TOKEN_LBRACE) {
+        printf("Expected { for array initializer\n");
+        exit(1);
+    }
+    current_token++; // skip {
+    
+    int count = 0;
+    if (tokens[current_token].type != TOKEN_RBRACE) {
+        // Parse first value
+        Token t = tokens[current_token];
+        if (t.type != TOKEN_VALUE) {
+            printf("Expected numeric value in array initializer\n");
+            exit(1);
+        }
+        emit(OP_PUSH, count);
+        printf("\n\n🪲🪲token :");
+        print_token(&tokens[current_token]);
+        printf("\n\n🪲🪲🪲🪲🪲🪲🪲🪲🪲🪲 :");
+        //emit(OP_PUSH, t.value);
+        parse_expression(); 
+        printf("\n\n🪲🪲token :");
+        print_token(&tokens[current_token]);
+        printf("\n\n🪲🪲🪲🪲🪲🪲🪲🪲🪲🪲 :");
+        //parse_expression();    // Parse and evaluate the expression
+        emit(OP_ARRAY_STORE, var->offset);
+        count++;
+        //current_token++;
+        
+        // Parse remaining values
+        while (tokens[current_token].type == TOKEN_COMMA) {
+            current_token++; // skip comma
+            t = tokens[current_token];
+            if (t.type != TOKEN_VALUE) {
+                printf("Expected numeric value in array initializer\n");
+                exit(1);
+            }
+            // For each element, emit its index and value
+            emit(OP_PUSH, count);
+            parse_expression(); 
+            //emit(OP_PUSH, t.value);
+            emit(OP_ARRAY_STORE, var->offset);
+            count++;
+            printf("\n\n🪲🪲token :");
+            print_token(&tokens[current_token]);
+            //current_token++;
+        }
+    }
+    
+    if (tokens[current_token].type != TOKEN_RBRACE) {
+        printf("Expected } after array initializer got :");
+        print_token(&tokens[current_token]);
+        exit(1);
+    }
+    current_token++; // skip }
+    
+    if (count > size) {
+        printf("Too many initializers for array size %d\n", size);
+        exit(1);
+    }
+    
+    // Fill remaining elements with 0 if any
+    while (count < size) {
+        emit(OP_PUSH, count);
+        emit(OP_PUSH, 0);
+        emit(OP_ARRAY_STORE, var->offset);
+        count++;
+    }
+}
 void parse_declaration() {
     // Get the type
     VarType type = token_to_type(tokens[current_token].type);
@@ -409,12 +491,9 @@ void parse_declaration() {
 	        Variable* var = add_var(var_name, array_type);
 	        var->size = size;
 	        var->is_array = 1;
-	        
+	        parse_array_initializer(var,size);
 	        // Initialize array with zeros
-	        for (int i = 0; i < size; i++) {
-	            emit(OP_PUSH, 0);
-	            emit(OP_STORE, var->offset + i);
-	        }
+	        
 	    } else {
 	        // Regular variable declaration
 	        Variable* var = add_var(var_name, type);
@@ -509,9 +588,10 @@ void parse_term() {
 
 void parse_expression() {
     // First handle comparison
+    
     parse_term();
     
-    while (current_token < token_count) {
+    while (current_token < token_count && tokens[current_token].type!=TOKEN_COMMA ) {
         TokenType op = tokens[current_token].type;
         if (op != TOKEN_PLUS && op != TOKEN_MINUS && op != TOKEN_LT && op != TOKEN_GT && op != TOKEN_GTE && op != TOKEN_LTE && op != TOKEN_EQL )
             break;
@@ -733,7 +813,7 @@ static Variable* get_variable(Token* id_token) {
 static void parse_identifier(Token* id_token) {
     
     current_token++; // consume ID
-    
+    //function 
     if (tokens[current_token].type == TOKEN_LPAREN) {
     	printf("\n•••• %s\n\n",id_token->str);
         parse_function_call(id_token);
@@ -769,7 +849,8 @@ static void parse_parenthesized_expr() {
 
 void parse_factor() {
     Token t = tokens[current_token];
-    
+    if (tokens[current_token].type==TOKEN_COMMA)
+    	return;
     if (t.type == TOKEN_VALUE) {
         emit(OP_PUSH, t.value);
         current_token++;
@@ -1049,12 +1130,12 @@ void execute() {
 	            int index = stack_pop();
 	            int base_addr = bp + bc->arg;
 	printf("\n\n•load••••var size %d\n\n",variables[bc->arg].size);
-	/*
+	
 	            if (index < 0 || index >= variables[bc->arg].size) {
 	                printf("Array index out of bounds\n");
 	                exit(1);
 	            }
-	*/
+	
 	            stack_push(stack[base_addr + index]);
 	            break;
 	        }
@@ -1064,12 +1145,12 @@ void execute() {
 	            int index = stack_pop();
 	            int base_addr = bp + bc->arg;
 	printf("\n\n•••••store var size %d\n\n",variables[bc->arg].size);
-	/*
+	
 	            if (index < 0 || index >= variables[bc->arg].size) {
 	                printf("Array index out of bounds\n");
 	                exit(1);
 	            }
-	*/
+	
 	            stack[base_addr + index] = value;
 	            break;
 	        }
@@ -1095,7 +1176,7 @@ void execute() {
         printf("\n");
     }
 }
-char input[]="int hello(){return 12;}int test(int x,int y){if (x+y<=5){ return x+y+hello();} return x*y;}print test(2,3);int xn[5];xn[0]=555;print xn[0]";
+char input[]="int hello(){return 12;}int test(int x,int y){if (x+y<=5){ return x+y+hello();} return x*y;}print test(2,3);int xn[3]={1*2,2*2,3*2};xn[0]=555;print xn[0];print xn [1];";
 //char input[] = "int fib(int n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(8);";
 //char input[] = "int u=pow(2,2);if (pow(2,2)<u){print u}else {print u+2;}";
 //char input[] = "int u=0;while(u<=10){ if(u==10) {print 6666;}print u;u=u+1;}";
